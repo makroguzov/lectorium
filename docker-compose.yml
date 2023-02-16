@@ -1,0 +1,34 @@
+services:
+  lectorium:
+    container_name: lectorium
+    build:
+      context: lectorium
+      dockerfile: Dockerfile
+      args:
+        HOST: 0.0.0.0
+        PORT: 8888
+    environment:
+      MINIO_HOST: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: admin
+      MINIO_SECRET_KEY: password
+      MINIO_STORAGE_BUCKET_NAME: lectorium
+    ports:
+      - 8888:8888
+
+  minio:
+    image: minio/minio
+    hostname: minio
+    volumes:
+      - minio:/minio_files
+    ports:
+      - 9990:9000
+      - 9991:9001
+    environment:
+      MINIO_ACCESS_KEY: admin
+      MINIO_SECRET_KEY: password
+      MINIO_STORAGE_BUCKET_NAME: lectorium
+    command: 'minio server /minio_files --console-address ":9001"'
+
+volumes:
+  minio:
