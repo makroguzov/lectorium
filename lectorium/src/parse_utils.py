@@ -96,14 +96,14 @@ def build_graph(text: str, lecture_name: str):
             # Пробежимся по всем определениям кроме текущего,
             # и поищем сходства
             if i != j:
-                current_names = current_definition['names']['lemma']
+                current_names = current_definition['names']
                 tokens: set = definition['tokens']['lemma']
                 # Если среди слов в определении встречаются названия
                 # текущего определения, то это однозначно связь, и
                 # нужно добавить ее в граф.
-                if tokens.intersection(current_names):
+                if tokens.intersection(current_names['lemma']):
                     graph.edge(
-                        str(current_names),
+                        str(current_names['original']),
                         str(definition['names']['original'])
                     )
 
