@@ -9,9 +9,8 @@ uvicorn = "*"
 python-multipart = "*"
 texsoup = "*"
 pymystem3 = "*"
-networkx = "*"
-matplotlib = "*"
 minio = "*"
+graphviz = "*"
 
 [dev-packages]
 
