@@ -4,12 +4,12 @@ import re
 import typing
 import uuid
 
-import matplotlib.pyplot as plt
-import networkx as nx
+import graphviz
 from TexSoup import TexNode, TexSoup
 from pymystem3 import Mystem
 
 from storage import BUCKET_NAME
+from storage import STORAGE_PATH
 from storage import minioClient
 
 LEMMATIZER = Mystem()
@@ -80,9 +80,16 @@ def build_graph(text: str, lecture_name: str):
     definitions = parse(text)['definitions']
     # Надо заполнить граф узлами.
     # В качестве узлов будут выступать наименования определений.
-    graph = nx.Graph()
+    graph = graphviz.Digraph('unix', filename='unix.gv',
+                             node_attr={'color': 'lightblue2', 'style': 'filled'})
+    graph.attr(size='6,6')
+
+    # Для начала добавим все узлы на граф.
+    # В качестве узлов выступают наименования определений
     for definition in definitions:
-        graph.add_node(tuple(definition['names']['original']))
+        graph.node(
+            str(definition['names']['original'])
+        )
 
     for i, current_definition in enumerate(definitions):
         for j, definition in enumerate(definitions):
@@ -95,43 +102,24 @@ def build_graph(text: str, lecture_name: str):
                 # текущего определения, то это однозначно связь, и
                 # нужно добавить ее в граф.
                 if tokens.intersection(current_names):
-                    graph.add_edge(
-                        u_of_edge=tuple(current_names),
-                        v_of_edge=tuple(definition['names']['original'])
+                    graph.edge(
+                        str(current_names),
+                        str(definition['names']['original'])
                     )
 
-    store_path = os.environ.get('STORAGE_PATH')
+    def delete_graph_from_local_storage(path):
+        os.remove(path)
 
-    if not store_path:
-        store_path = f'{os.environ["PROJECT_DIR"]}/store'
-
-    if not os.path.exists(store_path):
-        os.mkdir(store_path)
-
-    graph_name = f'{lecture_name.split(".")[0]}.png'
-    graph_path = f'{store_path}/{uuid.uuid1()}.png'
-    logger.info(
-        f'\n----------------------------------------------'
-        f'Saving graph in temporary `path`: {graph_path} '
-        f'for `lecture name`: {lecture_name}.'
-        f'\n----------------------------------------------'
-    )
-
-    nx.draw(graph, with_labels=True, font_weight='bold')
-    try:
-        plt.savefig(graph_path)
-    except Exception as err:
-        logger.error(
-            f'\n----------------------------------------------'
-            f'\nRaise exception while saving graph picture. '
-            f'\nError description: \n{err}'
-            f'\n----------------------------------------------'
-        )
-
-    ref = ''
+    graph_name = f'{lecture_name.split(".")[0]}.pdf'
+    graph_path = graph.render(filename=str(uuid.uuid1()), directory=STORAGE_PATH, cleanup=True)
     try:
         ref = minioClient.fput_object(BUCKET_NAME, graph_name, graph_path)
+        # todo:- get ref to minio
+        # todo:- get ref to minio
+        delete_graph_from_local_storage(graph_path)
+        return ref
     except Exception as err:
+        delete_graph_from_local_storage(graph_path)
         logger.error(
             f'\n----------------------------------------------'
             f'\nRaise exception when upload graph picture. '
@@ -139,8 +127,4 @@ def build_graph(text: str, lecture_name: str):
             f'\n----------------------------------------------'
         )
 
-    os.remove(graph_path)
-    if not ref:
-        raise BuildGraphError('')
-
-    return ref
+    raise BuildGraphError('')
