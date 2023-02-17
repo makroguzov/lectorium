@@ -18,3 +18,11 @@ if not minioClient.bucket_exists(BUCKET_NAME):
     minioClient.make_bucket(
         BUCKET_NAME
     )
+
+STORAGE_PATH = os.environ.get('STORAGE_PATH')
+
+if not STORAGE_PATH:
+    STORAGE_PATH = f'{os.environ["PROJECT_DIR"]}/store'
+
+if not os.path.exists(STORAGE_PATH):
+    os.mkdir(STORAGE_PATH)
