@@ -16,6 +16,9 @@ WORKDIR $PROJECT_DIR
 RUN pip install  \
       --upgrade pip pipenv && pipenv install --system --deploy
 
+RUN apt-get update && \
+    apt-get -y install graphviz
+
 ARG HOST
 ARG PORT
 
