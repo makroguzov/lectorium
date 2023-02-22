@@ -1,19 +1,32 @@
+version: '3.7'
+
+x-build: &build
+  container_name: lectorium
+  build:
+    context: lectorium
+    args:
+      HOST: 0.0.0.0
+      PORT: 8888
+  environment:
+    MINIO_HOST: minio
+    MINIO_PORT: 9000
+    MINIO_ACCESS_KEY: admin
+    MINIO_SECRET_KEY: password
+    MINIO_STORAGE_BUCKET_NAME: lectorium
+  ports:
+    - "8888:8888"
+  depends_on:
+    - minio
+
+
 services:
   lectorium:
-    container_name: lectorium
-    build:
-      context: lectorium
-      args:
-        HOST: 0.0.0.0
-        PORT: 8888
-    environment:
-      MINIO_HOST: minio
-      MINIO_PORT: 9000
-      MINIO_ACCESS_KEY: admin
-      MINIO_SECRET_KEY: password
-      MINIO_STORAGE_BUCKET_NAME: lectorium
-    ports:
-      - 8888:8888
+    <<: *build
+
+  develop:
+    <<: *build
+    volumes:
+      - ./lectorium/src:/lectorium/
 
   minio:
     image: minio/minio
@@ -21,8 +34,8 @@ services:
     volumes:
       - minio:/minio_files
     ports:
-      - 9990:9000
-      - 9991:9001
+      - "9990:9000"
+      - "9991:9001"
     environment:
       MINIO_ACCESS_KEY: admin
       MINIO_SECRET_KEY: password
