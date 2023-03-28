@@ -1,37 +1,36 @@
 import traceback
 
-import fastapi
-import uvicorn
+from fastapi import UploadFile, APIRouter, FastAPI, status
+from starlette.responses import JSONResponse, RedirectResponse, HTMLResponse
+from uvicorn import run
 
-from parse_utils import build_graph, BuildGraphError
-from parse_utils import parse
+from parse_utils import parse_lecture_from, graph_html
+from storage import STORAGE_PATH
 
-api = fastapi.APIRouter(prefix='')
+api = APIRouter(prefix='')
 
 
 def get_application():
-    return fastapi.FastAPI(routes=api.routes)
+    return FastAPI(routes=api.routes)
 
 
-@api.post('/')
-async def parce_lecture(files: list[fastapi.UploadFile]):
-    parsed_lectures = {}
-    for upload in files:
-        text_bytes = upload.file.read()
-        parsed_lectures[upload.filename] = parse(text_bytes.decode())
-    return parsed_lectures
+@api.get('/index', response_class=HTMLResponse)
+def index():
+    with open(f'{STORAGE_PATH}/index.html') as index_file:
+        return index_file.read()
 
 
-@api.post('/graph')
-def build_words_graph(upload: fastapi.UploadFile):
-    text_bytes = upload.file.read()
+@api.post('/graph', response_class=RedirectResponse)
+async def build_words_graph(upload: list[UploadFile]):
     try:
-        return {
-            'url': build_graph(text_bytes.decode(), upload.filename),
-        }
-    except BuildGraphError as err:
-        return fastapi.responses.JSONResponse(
-            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+        lectures = []
+        for file in upload:
+            lectures.append(await parse_lecture_from(file))
+        return graph_html(lectures)
+    except Exception as err:
+        print(traceback.format_exc())
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 'error': str(err),
                 'debug': traceback.format_exc()
@@ -40,4 +39,4 @@ def build_words_graph(upload: fastapi.UploadFile):
 
 
 if __name__ == '__main__':
-    uvicorn.run('main:get_application', reload=True)
+    run('main:get_application', reload=True)

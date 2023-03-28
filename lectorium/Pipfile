@@ -11,6 +11,8 @@ texsoup = "*"
 pymystem3 = "*"
 minio = "*"
 graphviz = "*"
+pyvis = "==0.3.1"
+networkx = "*"
 
 [dev-packages]
 

@@ -1,130 +1,112 @@
-import logging
-import os
-import re
-import typing
-import uuid
+from dataclasses import dataclass
+from functools import cached_property
+from re import compile, sub
 
-import graphviz
-from TexSoup import TexNode, TexSoup
+from TexSoup import TexSoup
+from fastapi import UploadFile
+from networkx import Graph
 from pymystem3 import Mystem
+from pyvis.network import Network
 
-from storage import BUCKET_NAME
 from storage import STORAGE_PATH
-from storage import minioClient
+
+@dataclass(frozen=True)
+class Definition:
+    soap: TexSoup
+
+    @property
+    def name(self):
+        """
+        Название определения. Тут на самом деле есть над чем
+        подумать. Что делать если названия нет и что делать
+        если их несколько?
+        """
+        names = self.soap.find_all('textbf')
+        return sub(r' +', ' ', clean(names[0]))
+
+    @property
+    def text(self):
+        """Текст определения с выброшенным из него названием"""
+        return sub(r' +', ' ', clean(self.soap))
+
+    @cached_property
+    def text_lemma(self):
+        return lemmatize(self.text)
+
+    @cached_property
+    def name_lemma(self):
+        return lemmatize(self.name)
+
+    def __str__(self):
+        return f'Definition({self.name})'
+
+    def __repr__(self):
+        return f'Definition(name={self.name}, text={self.text})'
+
 
 LEMMATIZER = Mystem()
-REPLACE_TRASH_PATTERN = re.compile(r'[^а-яА-Я ]')
-
-logger = logging.getLogger()
+REPLACE_TRASH_PATTERN = compile(r'[^а-яА-Я ]')
 
 
-def tokenize(text: str):
-    for token in clean(text).split(' '):
-        if token.isalpha():
-            yield token.lower()
+def lemmatize(text: str):
+    return ' '.join(LEMMATIZER.lemmatize(text))
 
 
-def lemmatize(tokens: typing.Iterable[str]):
-    text = ' '.join(tokens)
-    return set([token for token in LEMMATIZER.lemmatize(text) if token.isalpha()])
-
-
-def clean(text: str | TexNode):
+def clean(text):
+    """Чистим текст. Оставляем только русские буквы."""
     return REPLACE_TRASH_PATTERN.sub('', str(text)).lower()
 
 
-def parse(text: str):
-    soap = TexSoup(text.replace('$', ''))
-    definitions = []
-    for definition in soap.find_all('definition'):
-        definitions.append(
-            parse_definition(definition)
-        )
+@dataclass(frozen=True)
+class Lecture:
+    name: str
+    text: str
 
-    all_tokens = tokenize(text)
-    all_tokens = set(all_tokens)
+    @cached_property
+    def cleaned_text(self):
+        """Текс лекции без специальных символов"""
+        return self.text.replace('$', '').lower()
 
+    @cached_property
+    def definitions(self) -> list[Definition]:
+        """Список определений содержащихся в лекции"""
+        return [Definition(soap=soap) for soap in self._soap.find_all('definition')]
+
+    @property
+    def _soap(self):
+        return TexSoup(self.cleaned_text)
+
+
+async def parse_lecture_from(file: UploadFile) -> Lecture:
+    """Парсим лекции из файла"""
+    text = await file.read()
+    return Lecture(name=file.filename, text=text.decode())
+
+
+def get_graph_settings():
     return {
-        'tokens': list(all_tokens),
-        'definitions': definitions
-    }
-
-
-def parse_definition(definition: TexSoup):
-    names = set()
-    for name in definition.find_all('textbf'):
-        names.add(clean(name))
-
-    all_tokens = tokenize(definition)
-    all_tokens = list(all_tokens)
-
-    return {
-        'text': ' '.join(all_tokens),
-        'names': {
-            'lemma': lemmatize(names),
-            'original': names,
-        },
-        'tokens': {
-            'lemma': lemmatize(all_tokens),
-            'all': set(all_tokens),
-            'unique': set(all_tokens).difference(names),
+        'filename': 'unix.gv',
+        'node_attr': {
+            'color': 'lightblue2',
+            'style': 'filled'
         }
     }
 
 
-class BuildGraphError(Exception):
-    pass
-
-
-def build_graph(text: str, lecture_name: str):
-    definitions = parse(text)['definitions']
-    # Надо заполнить граф узлами.
-    # В качестве узлов будут выступать наименования определений.
-    graph = graphviz.Digraph('unix', filename='unix.gv',
-                             node_attr={'color': 'lightblue2', 'style': 'filled'})
-    graph.attr(size='6,6')
-
-    # Для начала добавим все узлы на граф.
-    # В качестве узлов выступают наименования определений
-    for definition in definitions:
-        graph.node(
-            str(definition['names']['original'])
-        )
-
-    for i, current_definition in enumerate(definitions):
-        for j, definition in enumerate(definitions):
-            # Пробежимся по всем определениям кроме текущего,
-            # и поищем сходства
+def graph_html(lectures: list[Lecture]):
+    def_l = [definition for lecture in lectures for definition in lecture.definitions]
+    graph = Graph()
+    # Пробежимся по всем определениям кроме текущего, и поищем сходства
+    for i, cur_definition in enumerate(def_l):
+        # Для начала добавим все узлы на граф. В качестве узлов выступают
+        # наименования определений&
+        graph.add_node(i, label=cur_definition.name)
+        for j, definition in enumerate(def_l):
             if i != j:
-                current_names = current_definition['names']
-                tokens: set = definition['tokens']['lemma']
-                # Если среди слов в определении встречаются названия
-                # текущего определения, то это однозначно связь, и
-                # нужно добавить ее в граф.
-                if tokens.intersection(current_names['lemma']):
-                    graph.edge(
-                        str(current_names['original']),
-                        str(definition['names']['original'])
-                    )
+                if cur_definition.name_lemma in definition.text_lemma:
+                    graph.add_edge(i, j)
 
-    def delete_graph_from_local_storage(path):
-        os.remove(path)
-
-    graph_name = f'{lecture_name.split(".")[0]}.pdf'
-    graph_path = graph.render(filename=str(uuid.uuid1()), directory=STORAGE_PATH, cleanup=True)
-    try:
-        ref = minioClient.fput_object(BUCKET_NAME, graph_name, graph_path)
-        # todo:- get ref to minio
-        # todo:- get ref to minio
-        delete_graph_from_local_storage(graph_path)
-        return ref
-    except Exception as err:
-        delete_graph_from_local_storage(graph_path)
-        logger.error(
-            f'\n----------------------------------------------'
-            f'\nRaise exception when upload graph picture. '
-            f'\nError description: \n{err}'
-            f'\n----------------------------------------------'
-        )
-
-    raise BuildGraphError('')
+    nt = Network('500px', '500px')
+    nt.from_nx(graph)
+    nt.save_graph(f'{STORAGE_PATH}/index.html')
+    return '/index'
