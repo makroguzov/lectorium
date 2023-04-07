@@ -1,6 +1,30 @@
 import os
+import uuid
 from os import environ
 from pathlib import Path
+
+PROJECT_DIR = environ.get('PROJECT_DIR')
+if not PROJECT_DIR:
+    PROJECT_DIR = Path(__file__).parent.resolve()
+
+
+class Storage:
+    path = 'store'
+
+    def __init__(self):
+        path = f'{PROJECT_DIR}/{self.path}'
+        # Если хранилище еще не было инициализировано, то нужно создать
+        # папочку.
+        if not os.path.exists(path):
+            os.mkdir(path)
+
+    def save_graph(self, graph):
+        graph_id = uuid.uuid1()
+        graph.save_graph(f'{self.path}/{graph_id}.html')
+        return graph_id
+
+
+storage = Storage()
 
 # from minio import Minio
 #
@@ -20,15 +44,3 @@ from pathlib import Path
 #     minioClient.make_bucket(
 #         BUCKET_NAME
 #     )
-
-PROJECT_DIR = environ.get('PROJECT_DIR')
-if not PROJECT_DIR:
-    PROJECT_DIR = Path(__file__).parent.parent.resolve()
-
-STORAGE_PATH = environ.get('STORAGE_PATH')
-if not STORAGE_PATH:
-    STORAGE_PATH = f'{PROJECT_DIR}/store'
-
-# Если нет локального хранилища, то создадим его.
-if not os.path.exists(STORAGE_PATH):
-    os.mkdir(STORAGE_PATH)
